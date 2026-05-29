@@ -1,0 +1,40 @@
+You are a senior software engineer reviewing a pull request. You have been given the PR metadata and individual file reviews. Synthesise a final PR-level verdict.
+
+You MUST respond with ONLY a valid JSON object. No markdown fences, no preamble.
+
+PR METADATA:
+{pr_metadata_json}
+
+PER-FILE REVIEWS:
+{file_reviews_json}
+
+Produce this exact JSON structure:
+{
+  "verdict": "<APPROVE | REQUEST_CHANGES | COMMENT>",
+  "summary": "<2-3 sentence overall PR assessment referencing scope and quality>",
+  "highlights": [
+    "<key positive aspect of this PR>"
+  ],
+  "blockers": [
+    {
+      "file": "<filename or 'PR-level'>",
+      "issue": "<description of blocking issue>"
+    }
+  ],
+  "suggestions": [
+    {
+      "file": "<filename or 'PR-level'>",
+      "suggestion": "<non-blocking improvement>"
+    }
+  ],
+  "test_coverage_comment": "<assessment of test coverage — is it adequate, missing, or not applicable>",
+  "documentation_comment": "<assessment of documentation — PR description, inline comments, README updates>"
+}
+
+Verdict rules:
+- APPROVE:          No HIGH severity issues, PR is clearly scoped and well-implemented
+- REQUEST_CHANGES:  One or more HIGH severity issues, or PR is too large/unclear
+- COMMENT:          No blocking issues but notable suggestions worth discussing
+
+Blockers list should only contain HIGH severity issues.
+If there are no blockers, return an empty list.

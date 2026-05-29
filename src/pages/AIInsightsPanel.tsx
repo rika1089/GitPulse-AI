@@ -16,13 +16,19 @@ interface AIInsightsPanelProps {
 }
 
 export const AIInsightsPanel: React.FC<AIInsightsPanelProps> = ({ selectedRepo }) => {
-  // Safe fallback to React details if none is selected
-  const repoDetails: RepoDetails = useMemo(() => {
+  // Use selectedRepo directly — look up mock details only for supplementary data
+  const repoDetails: RepoDetails | null = useMemo(() => {
     if (!selectedRepo) return mockRepoDetailsMap['react-health'];
-    return mockRepoDetailsMap[selectedRepo.id] || mockRepoDetailsMap['react-health'];
+    return mockRepoDetailsMap[selectedRepo.id] || null;
   }, [selectedRepo]);
 
-  const { repository, insights, readmeQuality, security, ciCd, contributionHealth } = repoDetails;
+  // Always use the real selectedRepo — never fall back to mock
+  const repository = selectedRepo || mockRepoDetailsMap['react-health'].repository;
+  const insights = repoDetails?.insights || { summary: 'No AI insights available yet. Run a full assessment to generate insights.', strengths: [], risks: [], recommendations: [] };
+  const readmeQuality = repoDetails?.readmeQuality || { score: 0, checks: [] };
+  const security = repoDetails?.security || { score: 0, checks: [] };
+  const ciCd = repoDetails?.ciCd || { score: 0, checks: [] };
+  const contributionHealth = repoDetails?.contributionHealth || { score: 0, checks: [] };
 
   // Calculate cumulative average documentation and pipeline score
   const docScore = readmeQuality.score;

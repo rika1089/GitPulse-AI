@@ -29,13 +29,22 @@ export const RepoDetailsPage: React.FC<RepoDetailsPageProps> = ({
   selectedRepo,
   setCurrentTab,
 }) => {
-  // Safe fallback to React details if none is selected
-  const repoDetails: RepoDetails = useMemo(() => {
+  // Use selectedRepo directly — look up mock details only for supplementary data
+  const repoDetails: RepoDetails | null = useMemo(() => {
     if (!selectedRepo) return mockRepoDetailsMap['react-health'];
-    return mockRepoDetailsMap[selectedRepo.id] || mockRepoDetailsMap['react-health'];
+    // Try to find mock details for the checklist sections
+    return mockRepoDetailsMap[selectedRepo.id] || null;
   }, [selectedRepo]);
 
-  const { repository, readmeQuality, security, ciCd, contributionHealth, timeline } = repoDetails;
+  // Always use the real selectedRepo for the header — never fall back to mock
+  const repository = selectedRepo || mockRepoDetailsMap['react-health'].repository;
+
+  // For checklist/timeline sections, use mock details if available, otherwise show placeholders
+  const readmeQuality = repoDetails?.readmeQuality || { score: 0, checks: [] };
+  const security = repoDetails?.security || { score: 0, checks: [] };
+  const ciCd = repoDetails?.ciCd || { score: 0, checks: [] };
+  const contributionHealth = repoDetails?.contributionHealth || { score: 0, checks: [] };
+  const timeline = repoDetails?.timeline || [];
 
   const checkGroups = [
     { title: 'README & Documentation', score: readmeQuality.score, checks: readmeQuality.checks, icon: FileCheck, color: 'text-cyan-400' },

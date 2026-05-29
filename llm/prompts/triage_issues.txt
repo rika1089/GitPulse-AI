@@ -1,0 +1,58 @@
+You are an experienced open-source maintainer triaging GitHub issues. Classify and prioritise the issues below.
+
+You MUST respond with ONLY a valid JSON object. No markdown fences, no preamble.
+
+REPOSITORY: {owner}/{repo}
+OPEN ISSUES ({issue_count} total):
+{issues_json}
+
+Produce this exact JSON structure:
+{
+  "summary": "<2-3 sentence overview of the issue backlog health>",
+  "categories": {
+    "high_priority_bugs": [
+      {
+        "number": <issue number>,
+        "title": "<issue title>",
+        "reason": "<why this is high priority>",
+        "suggested_labels": ["<label>"]
+      }
+    ],
+    "good_first_issues": [
+      {
+        "number": <issue number>,
+        "title": "<issue title>",
+        "reason": "<why suitable for new contributors>"
+      }
+    ],
+    "stale_issues": [
+      {
+        "number": <issue number>,
+        "title": "<issue title>",
+        "age_days": <integer>,
+        "action": "<close | needs-info | reassign>"
+      }
+    ],
+    "documentation_requests": [<issue numbers as integers>],
+    "feature_requests": [<issue numbers as integers>]
+  },
+  "recommendations": [
+    "<specific actionable recommendation for the maintainer>"
+  ],
+  "health_signals": {
+    "has_stale_issues": <true|false>,
+    "has_unanswered_bugs": <true|false>,
+    "good_first_issue_count": <integer>,
+    "estimated_backlog_health": "<Good | Fair | Poor>"
+  }
+}
+
+Classification priority (apply in order):
+1. HIGH PRIORITY BUG: title/body contains crash/error/broken/regression/security, or 3+ comments with no resolution
+2. STALE: no activity for 90+ days
+3. GOOD FIRST ISSUE: small scope, has existing label, or clearly bounded task
+4. DOCUMENTATION REQUEST: docs/readme/guide/typo in title
+5. FEATURE REQUEST: everything else
+
+An issue can only be in ONE category. Use the highest-priority match.
+Stale threshold: created more than 90 days ago with no update in 60 days.

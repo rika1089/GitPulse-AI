@@ -34,23 +34,66 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setIsAnalyzing(true);
     setAnalysisStep(0);
 
-    // Simulate multi-step analysis sequence
+    // Parse user input as "owner/repo"
+    const inputClean = repoInput.trim();
+    let owner = '';
+    let repo = '';
+    if (inputClean.includes('/')) {
+      const parts = inputClean.split('/');
+      owner = parts[0];
+      repo = parts[1];
+    } else {
+      // If user typed just a name, we can't guess the owner — show an error
+      // But let's try to be smart: check mock repos first, then fail gracefully
+      const found = repositories.find(
+        (r) =>
+          r.name.toLowerCase() === inputClean.toLowerCase() ||
+          r.owner.toLowerCase() === inputClean.toLowerCase()
+      );
+      if (found) {
+        owner = found.owner;
+        repo = found.name;
+      } else {
+        // Can't determine owner — stop and show error
+        setIsAnalyzing(false);
+        alert('Please enter the full repository path, e.g. "tiangolo/fastapi"');
+        return;
+      }
+    }
+
+    // Animate multi-step analysis sequence, then fetch real data
     const interval = setInterval(() => {
       setAnalysisStep((prev) => {
         if (prev >= steps.length - 1) {
           clearInterval(interval);
           setTimeout(() => {
-            // Find a repo that matches input, or fallback to React
-            const inputClean = repoInput.toLowerCase();
-            const foundRepo = repositories.find(
-              (r) => 
-                r.name.toLowerCase().includes(inputClean) || 
-                r.owner.toLowerCase().includes(inputClean)
-            ) || repositories[0]; // fallback to facebook/react
-
-            setSelectedRepo(foundRepo);
-            setIsAnalyzing(false);
-            setCurrentTab('details');
+            const fetchAndSet = async () => {
+              try {
+                const resp = await fetch('http://localhost:8000/tool', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    name: 'get_repo_health',
+                    arguments: { owner, repo },
+                  }),
+                });
+                if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+                const data = await resp.json();
+                // The API returns { result: { repository: {...} } }
+                setSelectedRepo(data.result.repository);
+              } catch (err) {
+                console.error('Failed to fetch repo health:', err);
+                // Fallback to mock repo data if backend is down
+                const fallback = repositories.find(
+                  (r) => r.owner.toLowerCase() === owner.toLowerCase() && r.name.toLowerCase() === repo.toLowerCase()
+                );
+                if (fallback) setSelectedRepo(fallback);
+              } finally {
+                setIsAnalyzing(false);
+                setCurrentTab('details');
+              }
+            };
+            fetchAndSet();
           }, 800);
           return prev;
         }
@@ -155,10 +198,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-zinc-500">
                     <span>Try:</span>
-                    <button type="button" onClick={() => setRepoInput('vercel/next.js')} className="hover:text-indigo-400 transition-colors">next.js</button>
-                    <button type="button" onClick={() => setRepoInput('facebook/react')} className="hover:text-indigo-400 transition-colors">react</button>
-                    <button type="button" onClick={() => setRepoInput('openedx/edx-repo-health')} className="hover:text-indigo-400 transition-colors">edx-repo-health</button>
-                    <button type="button" onClick={() => setRepoInput('code-review-mcp-server')} className="hover:text-indigo-400 transition-colors">code-review-mcp</button>
+                    <button type="button" onClick={() => setRepoInput('tiangolo/fastapi')} className="hover:text-indigo-400 transition-colors">tiangolo/fastapi</button>
+                    <button type="button" onClick={() => setRepoInput('vercel/next.js')} className="hover:text-indigo-400 transition-colors">vercel/next.js</button>
+                    <button type="button" onClick={() => setRepoInput('facebook/react')} className="hover:text-indigo-400 transition-colors">facebook/react</button>
+                    <button type="button" onClick={() => setRepoInput('openedx/edx-repo-health')} className="hover:text-indigo-400 transition-colors">openedx/edx-repo-health</button>
                   </div>
                 </motion.form>
               ) : (
