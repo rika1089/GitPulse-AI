@@ -1,18 +1,19 @@
 """
 llm/client.py
 -------------
-OpenAI API wrapper with structured JSON output, retry logic, and prompt loading.
+Groq API wrapper (OpenAI-compatible endpoint).
 
-Design decisions:
-  - All prompts are loaded from .txt template files — easy to edit without
-    touching Python code.
-  - We always request JSON-only responses and parse with pydantic's
-    model_validate_json. On parse failure we retry once with an explicit
-    correction message before raising.
-  - The client is provider-agnostic at the interface level — swap the
-    underlying call in _call_api() to use Anthropic, Gemini, etc.
-  - Temperature is 0.2 for health/triage (deterministic scoring) and
-    0.4 for reviews (allows more varied feedback language).
+Groq exposes an OpenAI-compatible /v1/chat/completions endpoint, so we
+use the openai Python SDK pointed at Groq's base URL.
+The rest of the code (schemas, services, prompts) is unchanged.
+
+Supported Groq models (set GROQ_MODEL in .env):
+  llama-3.3-70b-versatile    ← default, best quality
+  llama-3.1-8b-instant       ← fastest, cheapest
+  mixtral-8x7b-32768         ← good for long contexts
+  gemma2-9b-it               ← lightweight alternative
+
+Rate limits (free tier): 30 req/min, 6000 tokens/min, 14400 req/day
 """
 
 from __future__ import annotations
@@ -31,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Directory containing .txt prompt templates
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
@@ -41,7 +41,7 @@ class LLMError(Exception):
 
 class LLMClient:
     """
-    Async wrapper around OpenAI's chat completions API.
+    Async wrapper around the Groq API using the OpenAI-compatible endpoint.
 
     Usage:
         client = LLMClient()
@@ -53,7 +53,11 @@ class LLMClient:
     """
 
     def __init__(self) -> None:
-        self._openai = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
+        # Point the openai SDK at Groq's base URL with the Groq API key
+        self._client = AsyncOpenAI(
+            api_key=settings.groq_api_key,
+            base_url=settings.groq_base_url,
+        )
         self._prompt_cache: dict[str, str] = {}
 
     # ------------------------------------------------------------------
@@ -68,19 +72,13 @@ class LLMClient:
         temperature: float = 0.2,
     ) -> T:
         """
-        Generate a structured LLM response and parse it into `response_model`.
+        Generate a structured LLM response and parse it into response_model.
 
         Args:
             prompt_name:    Filename (without .txt) in llm/prompts/
-            variables:      Dict of {placeholder: value} to substitute into prompt
+            variables:      Dict of {placeholder: value} to substitute
             response_model: Pydantic model to parse the JSON response into
             temperature:    0.0–1.0 (lower = more deterministic)
-
-        Returns:
-            Parsed instance of response_model.
-
-        Raises:
-            LLMError: If parsing fails after 1 retry.
         """
         prompt = self._load_prompt(prompt_name, variables)
         raw_json = await self._call_with_retry(prompt, temperature)
@@ -92,23 +90,19 @@ class LLMClient:
         variables: dict[str, str],
         temperature: float = 0.2,
     ) -> dict[str, Any]:
-        """
-        Generate an LLM response and return it as a raw dict.
-        Used when the response schema varies (e.g. per-file reviews).
-        """
+        """Generate and return as raw dict."""
         prompt = self._load_prompt(prompt_name, variables)
         raw_json = await self._call_with_retry(prompt, temperature)
         try:
             return json.loads(raw_json)
         except json.JSONDecodeError as exc:
-            raise LLMError(f"LLM returned invalid JSON: {exc}\nRaw: {raw_json[:500]}") from exc
+            raise LLMError(f"Groq returned invalid JSON: {exc}\nRaw: {raw_json[:500]}") from exc
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _load_prompt(self, prompt_name: str, variables: dict[str, str]) -> str:
-        """Load and interpolate a prompt template from the prompts directory."""
         if prompt_name not in self._prompt_cache:
             path = _PROMPTS_DIR / f"{prompt_name}.txt"
             if not path.exists():
@@ -119,22 +113,30 @@ class LLMClient:
             self._prompt_cache[prompt_name] = path.read_text(encoding="utf-8")
 
         template = self._prompt_cache[prompt_name]
-        for key, value in variables.items():
-            template = template.replace(f"{{{key}}}", str(value))
-        return template
+        try:
+            return template.format(**variables)
+        except KeyError as exc:
+            raise ValueError(
+                f"Prompt '{prompt_name}' requires variable {exc} "
+                f"which was not provided. Got: {list(variables.keys())}"
+            ) from exc
 
     async def _call_with_retry(self, prompt: str, temperature: float) -> str:
         """
-        Call the LLM API. On JSON parse failure, retry once with correction.
-        Returns raw text content from the model.
+        Call Groq. On JSON parse failure, retry once with a correction message.
+
+        Note: Groq's API does NOT support response_format={"type":"json_object"}
+        on all models, so we instruct via system prompt instead and parse manually.
         """
         messages = [
             {
                 "role": "system",
                 "content": (
                     "You are a precise JSON-generating assistant. "
-                    "Always respond with valid JSON only. "
-                    "No markdown code fences. No explanations outside the JSON object."
+                    "ALWAYS respond with a valid JSON object ONLY. "
+                    "No markdown code fences (no ```json). "
+                    "No explanations. No text before or after the JSON. "
+                    "Start your response with { and end with }."
                 ),
             },
             {"role": "user", "content": prompt},
@@ -142,26 +144,25 @@ class LLMClient:
 
         raw = await self._call_api(messages, temperature)
 
-        # Quick validation — if it parses as JSON we're done
+        # Quick JSON validation
         try:
             json.loads(raw)
             return raw
         except json.JSONDecodeError:
             pass
 
-        # Retry with correction message
-        logger.warning("LLM returned invalid JSON on first attempt. Retrying with correction.")
+        # Retry with explicit correction
+        logger.warning("Groq returned non-JSON on first attempt — retrying.")
         messages.append({"role": "assistant", "content": raw})
         messages.append({
             "role": "user",
             "content": (
                 "Your response was not valid JSON. "
-                "Please respond with ONLY the JSON object, no other text, "
-                "no markdown, no code fences."
+                "Reply with ONLY the JSON object. "
+                "Start with { and end with }. No other text."
             ),
         })
-
-        raw = await self._call_api(messages, temperature=0.0)  # zero temp for correction
+        raw = await self._call_api(messages, temperature=0.0)
         return raw
 
     async def _call_api(
@@ -169,35 +170,32 @@ class LLMClient:
         messages: list[dict[str, str]],
         temperature: float,
     ) -> str:
-        """Raw OpenAI API call. Swap this method to change providers."""
-        response = await self._openai.chat.completions.create(
+        """Raw Groq API call via OpenAI-compatible SDK."""
+        response = await self._client.chat.completions.create(
             model=settings.groq_model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,   # type: ignore[arg-type]
             temperature=temperature,
             max_tokens=2000,
-            response_format={"type": "json_object"},  # GPT-4o feature for guaranteed JSON
         )
         content = response.choices[0].message.content or ""
         return content.strip()
 
     @staticmethod
     def _parse_response(raw_json: str, model: Type[T]) -> T:
-        """Parse raw JSON string into the given Pydantic model."""
-        # Strip json fences in case the model ignored our instructions
         cleaned = raw_json.strip()
+        # Strip accidental markdown fences
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
             cleaned = "\n".join(
-                line for line in lines
-                if not line.startswith("```")
+                line for line in lines if not line.startswith("```")
             ).strip()
 
         try:
             return model.model_validate_json(cleaned)
         except Exception as exc:
             raise LLMError(
-                f"Failed to parse LLM response into {model.__name__}: {exc}\n"
-                f"Raw JSON (first 500 chars): {cleaned[:500]}"
+                f"Failed to parse Groq response into {model.__name__}: {exc}\n"
+                f"Raw (first 500 chars): {cleaned[:500]}"
             ) from exc
 
 
@@ -209,7 +207,6 @@ _llm_client: LLMClient | None = None
 
 
 def get_llm_client() -> LLMClient:
-    """Return the shared LLMClient singleton."""
     global _llm_client
     if _llm_client is None:
         _llm_client = LLMClient()

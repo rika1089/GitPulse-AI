@@ -1,24 +1,62 @@
-# Fix: Get from 64 to 121 tests
+# GitPulse — FastAPI + React integration
 
-## What's missing on your machine
+## What this zip contains
 
-You have 64 tests passing. The remaining 57 tests live in two files
-that never got copied to your local tests/ folder:
+Backend (copy into gitpulse_mcp/):
+  gitpulse_mcp/api/__init__.py
+  gitpulse_mcp/api/main.py          ← FastAPI server
 
-  tests/test_assessment_service.py   (17 tests — Phase 4)
-  tests/test_tools.py                (41 tests — tools layer)
+Frontend (copy into your React src/):
+  src/api/client.ts                  ← typed fetch wrapper  (NEW file)
+  src/hooks/useRepoData.ts           ← React hooks          (NEW file)
+  src/App.tsx                        ← replaces existing App.tsx
+  src/pages/RepoDetailsPage.tsx      ← replaces existing RepoDetailsPage.tsx
+  src/pages/AIInsightsPanel.tsx      ← replaces existing AIInsightsPanel.tsx
 
-## What to copy from this zip
+## Step 1 — Install backend deps
 
-1. Copy  tests/test_assessment_service.py  →  GitPulseAI/gitpulse_mcp/tests/
-2. Copy  tests/test_tools.py               →  GitPulseAI/gitpulse_mcp/tests/
-3. Copy  gitpulse_mcp/tools/              →  GitPulseAI/gitpulse_mcp/tools/   (overwrite all)
-4. Copy  gitpulse_mcp/models/__init__.py  →  GitPulseAI/gitpulse_mcp/models/  (overwrite)
-5. Copy  gitpulse_mcp/models/review.py   →  GitPulseAI/gitpulse_mcp/models/
-6. Copy  gitpulse_mcp/models/triage.py   →  GitPulseAI/gitpulse_mcp/models/
+  cd GitPulseAI
+  .venv\Scripts\activate
+  pip install fastapi uvicorn
 
-## Run tests
+## Step 2 — Copy backend file
 
-  python -m pytest gitpulse_mcp/tests/ -v
+  copy "gitpulse_mcp\api\__init__.py"  GitPulseAI\gitpulse_mcp\api\__init__.py
+  copy "gitpulse_mcp\api\main.py"      GitPulseAI\gitpulse_mcp\api\main.py
 
-Expected: 121 passed, 0 failed
+## Step 3 — Copy frontend files
+
+  # Create new folders first
+  mkdir GitHubReview\src\api
+  mkdir GitHubReview\src\hooks
+
+  copy "src\api\client.ts"               GitHubReview\src\api\client.ts
+  copy "src\hooks\useRepoData.ts"        GitHubReview\src\hooks\useRepoData.ts
+  copy "src\App.tsx"                     GitHubReview\src\App.tsx
+  copy "src\pages\RepoDetailsPage.tsx"   GitHubReview\src\pages\RepoDetailsPage.tsx
+  copy "src\pages\AIInsightsPanel.tsx"   GitHubReview\src\pages\AIInsightsPanel.tsx
+
+## Step 4 — Start both servers (two terminals)
+
+  Terminal 1 — Backend:
+    cd GitPulseAI\gitpulse_mcp
+    uvicorn gitpulse_mcp.api.main:app --reload --port 8000
+
+  Terminal 2 — Frontend:
+    cd GitHubReview
+    npm run dev
+
+## Step 5 — Open http://localhost:5173
+
+  The dashboard now shows live data from GitHub.
+  First load takes 10-15 seconds per repo (GitHub API + OpenAI).
+  Subsequent loads within 5 minutes use the session cache.
+
+## Customise which repos appear on the dashboard
+
+  Edit src/hooks/useRepoData.ts → DEFAULT_REPOS array:
+
+    export const DEFAULT_REPOS = [
+      { owner: 'your-org', repo: 'your-repo' },
+      { owner: 'facebook',  repo: 'react' },
+    ];
